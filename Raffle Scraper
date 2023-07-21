@@ -1,0 +1,99 @@
+from selenium import webdriver
+from selenium.webdriver.support.ui import WebDriverWait
+from selenium.webdriver.support import expected_conditions as EC
+from selenium.webdriver.common.by import By
+from bs4 import BeautifulSoup
+import pandas as pd
+import re
+
+url = 'xxxxx' # Replace with the URL of the site you want to scrape
+
+try:
+    # Create a new instance of the Firefox driver
+    driver = webdriver.Firefox()
+
+    # Navigate to the specified URL
+    driver.get(url)
+
+    # Wait for a specific element to be present on the page
+    wait = WebDriverWait(driver, 30)  # Increase the timeout value to 30 seconds
+    element = wait.until(EC.presence_of_element_located((By.CLASS_NAME, 'card')))
+
+
+
+    # Scroll down the page until enough raffles have been loaded
+    num_raffles = 0
+    while num_raffles < 200:
+        # Scroll down to the bottom of the page
+        driver.execute_script("window.scrollTo(0, document.body.scrollHeight);")
+
+        # Wait for more raffles to load
+        wait.until(EC.presence_of_element_located((By.CLASS_NAME, 'card')))
+
+        # Get the page source
+        page_source = driver.page_source
+
+        # Parse the page source using BeautifulSoup
+        soup = BeautifulSoup(page_source, 'html.parser')
+
+        # Count the number of raffles on the page
+        raffles = soup.find_all('div', class_='card rounded-2xl overflow-hidden group md:hover:scale-[1.03] transition')
+        print(len(raffles))
+        num_raffles = len(raffles)
+
+    import time
+    time.sleep(2)  # Wait for 2 seconds
+
+    raffle_data = []
+    for raffle in raffles:
+        outer_text = raffle.get_text()
+        floor_price_match = re.search(r'FP: ([\d.]+)', outer_text)
+        if floor_price_match:
+            floor_price = floor_price_match.group(1)
+            fp = float(floor_price)
+        else:
+            floor_price = 'N/A'
+        name_match = re.search(r'TTV: [\d.]+([^\@]+)', outer_text)
+        if name_match:
+            name = namecheck(name_match.group(1).strip())
+        else:
+            name = 'N/A'
+        total_tickets_match = re.search(r'Tickets Remaining\s*\d+ / (\d+)', outer_text)
+        if total_tickets_match:
+            total_tickets = total_tickets_match.group(1)
+            tt = float(total_tickets)
+        else:
+            total_tickets = 'N/A'
+        price_per_ticket_match = re.search(r'Price/Ticket\s*([\d.]+)', outer_text)
+        if price_per_ticket_match:
+            price_per_ticket = price_per_ticket_match.group(1)
+            ppt = float(price_per_ticket)
+        else:
+            price_per_ticket = 'N/A'
+        raffler_name = re.search(r'@ ([\d.]+)', outer_text)
+        if raffler_name:
+           raffler_name = raffler_name.group(1)
+        else:
+           raffler_name = 'N/A'
+
+        difference = (fp - (ppt * tt)) / (ppt * tt) * 100
+
+        if 'N/A' not in [name, total_tickets, price_per_ticket, floor_price]:
+            raffle_data.append({
+                'Name': name,
+                'Total Tickets': total_tickets,
+                'Price per Ticket': price_per_ticket,
+                'Floor Price': floor_price,
+                '% Difference': difference,
+                'Raffler' : raffler_name
+        })
+
+    df = pd.DataFrame(raffle_data)
+    print(df.to_markdown())
+    df.to_csv('raffle_data.csv', index=False)
+
+    # Close the browser window
+    driver.quit()
+except Exception as e:
+    print(e)
+
